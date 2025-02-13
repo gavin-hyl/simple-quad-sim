@@ -74,7 +74,7 @@ class Robot:
         self.constant_thrust = 10e-4
         self.constant_drag = 10e-6
         self.omega_motors = np.array([0.0, 0.0, 0.0, 0.0])
-        self.state = self.reset_state_and_input(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0]))
+        self.state = self.reset_state_and_input(np.array([1.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0]))
         self.time = 0.0
         self.past_p = []
         self.record_path = "simple-quad-sim/data/2a-wind3.csv"
@@ -149,7 +149,7 @@ class Robot:
         k_omega = 100.0
         omega_ref = - k_q * 2 * q_err[1:]
         alpha = - k_omega * (omega_b - omega_ref)
-        tau = self.J @ alpha + np.cross(omega_b, self.J @ omega_b)
+        tau = self.J @ alpha
         
         # Compute the motor speeds.
         B = np.array([
@@ -188,12 +188,8 @@ def control_propellers(quad):
     t = quad.time
     T = 1.5
     r = 2*np.pi * t / T
-    p = quad.state[IDX_POS_X:IDX_POS_Z+1]   
-    # p_d = np.array([np.cos(r/2), np.sin(r), 0.0])
-    p_d = np.array([0.0, 0.0, 1.0])   # hovering at 1m
-    k_smooth = 1.0      # higher value means smoother trajectory from start
-    exp_smooth = np.exp(-k_smooth * t)  # blend two trajectories
-    prop_thrusts = quad.control(p_d_I = exp_smooth * p + (1 - exp_smooth) * p_d)
+    prop_thrusts = quad.control(p_d_I = np.array([np.cos(r/2), np.sin(r), 0.0]))
+    # Note: for Hover mode, just replace the desired trajectory with [1, 0, 1]
     quad.update(prop_thrusts, dt)
 
 def main():
