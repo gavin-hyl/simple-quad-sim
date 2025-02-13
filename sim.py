@@ -1,6 +1,7 @@
 import scipy.spatial.transform
 import numpy as np
 from animate_function import QuadPlotter
+import csv
 
 def quat_mult(q, p):
     # q * p
@@ -70,11 +71,17 @@ class Robot:
 
         self.J = 0.025 * np.eye(3) # [kg m^2]
         self.J_inv = np.linalg.inv(self.J)
-        self.constant_thrust = 10e-4
+        self.constant_thrust = 20e-4
         self.constant_drag = 10e-6
         self.omega_motors = np.array([0.0, 0.0, 0.0, 0.0])
         self.state = self.reset_state_and_input(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0]))
         self.time = 0.0
+        self.past_p = []
+        self.record_path = "simple-quad-sim/data/2a-20.csv"
+        # clear the file
+        with open(self.record_path, 'w', newline='') as _:
+            pass
+
 
     def reset_state_and_input(self, init_xyz, init_quat_wxyz):
         state0 = np.zeros(NO_STATES)
@@ -99,7 +106,7 @@ class Robot:
         tau_z = self.constant_drag * (omegas_motor[0]**2 - omegas_motor[1]**2 + omegas_motor[2]**2 - omegas_motor[3]**2)
         tau_b = np.array([tau_x, tau_y, tau_z])
 
-        v_dot = 1 / self.m * R @ f_b + np.array([0, 0, -9.81])
+        v_dot = 1 / self.m * R @ f_b + np.array([0, 0, -9.81]) + self.wind()
         omega_dot = self.J_inv @ (np.cross(self.J @ omega, omega) + tau_b)
         q_dot = 1 / 2 * quat_mult(q, [0, *omega])
         p_dot = v_I
@@ -108,6 +115,13 @@ class Robot:
         self.state += x_dot * dt
         self.state[IDX_QUAT_W:IDX_QUAT_Z+1] /= np.linalg.norm(self.state[IDX_QUAT_W:IDX_QUAT_Z+1]) # Re-normalize quaternion.
         self.time += dt
+
+        with open(self.record_path, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(p_I)
+
+        if self.time > 10:
+            exit("Simulation finished")
 
     def control(self, p_d_I):
         p_I = self.state[IDX_POS_X:IDX_POS_Z+1]
@@ -133,7 +147,7 @@ class Robot:
         k_omega = 100.0
         omega_ref = - k_q * 2 * q_err[1:]
         alpha = - k_omega * (omega_b - omega_ref)
-        tau = self.J @ alpha
+        tau = self.J @ alpha + np.cross(omega_b, self.J @ omega_b)
         
         # Compute the motor speeds.
         B = np.array([
@@ -147,7 +161,10 @@ class Robot:
         omega_motor = np.sqrt(np.clip(omega_motor_square, 0, None))
         return omega_motor
 
-PLAYBACK_SPEED = 1
+    def wind(self, fw = 1e-2, om = 1, phi = 0):
+        return np.ones(3) * fw * np.sin(om * self.time + phi)
+
+PLAYBACK_SPEED = 10
 CONTROL_FREQUENCY = 200 # Hz for attitude control loop
 dt = 1.0 / CONTROL_FREQUENCY
 time = [0.0]
@@ -169,8 +186,12 @@ def control_propellers(quad):
     t = quad.time
     T = 1.5
     r = 2*np.pi * t / T
-    prop_thrusts = quad.control(p_d_I = np.array([np.cos(r/2), np.sin(r), 0.0]))
-    # Note: for Hover mode, just replace the desired trajectory with [0, 0, 1]
+    p = quad.state[IDX_POS_X:IDX_POS_Z+1]   
+    p_d = np.array([np.cos(r/2), np.sin(r), 0.0])
+    # p_d = p_d + np.array([0.0, 0.0, 1.0])   # hovering at 1m
+    k_smooth = 1.0      # higher value means smoother trajectory from start
+    exp_smooth = np.exp(-k_smooth * t)  # blend two trajectories
+    prop_thrusts = quad.control(p_d_I = exp_smooth * p + (1 - exp_smooth) * p_d)
     quad.update(prop_thrusts, dt)
 
 def main():
