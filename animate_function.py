@@ -37,7 +37,7 @@ class QuadPlotter(object):
         an = animation.FuncAnimation(self.fig,
                                      anim_callback,
                                      init_func=None,
-                                     frames=400, interval=3, blit=False)
+                                     frames=400, interval=1, blit=False)
         if len(sys.argv) > 1 and sys.argv[1] == 'save':
             an.save('sim.gif', dpi=300, writer='imagemagick', fps=60)
         else:

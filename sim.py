@@ -3,6 +3,52 @@ import numpy as np
 from animate_function import QuadPlotter
 import csv
 
+import argparse
+
+def parse_args():
+    # Define valid options
+    VALID_TRAJS = ["hover", "circle", "figure8"]
+    VALID_WINDS = ["const", "sin"]
+    WIND_MAGS = [0, 1, 3, 5, 10]
+
+    # Set default values
+    default_traj = VALID_TRAJS[0] 
+    default_wind = VALID_WINDS[0]
+    default_wind_mag = WIND_MAGS[0]
+
+    # Create the parser
+    parser = argparse.ArgumentParser(description="Parse simulation parameters.")
+
+    # Add arguments for args.traj, args.wind, and args.wind_mag with valid choices and defaults
+    parser.add_argument(
+        "--traj",
+        type=str,
+        choices=VALID_TRAJS,
+        default=default_traj,
+        help=f"Trajectory. Valid options: {', '.join(VALID_TRAJS)} (default: {default_traj})"
+    )
+    parser.add_argument(
+        "--wind",
+        type=str,
+        choices=VALID_WINDS,
+        default=default_wind,
+        help=f"Wind type. Valid options: {', '.join(VALID_WINDS)} (default: {default_wind})"
+    )
+    parser.add_argument(
+        "--wind_mag",
+        type=int,
+        choices=WIND_MAGS,
+        default=default_wind_mag,
+        help=f"Wind magnitude. Valid options: {', '.join(map(str, WIND_MAGS))} (default: {default_wind_mag})"
+    )
+
+    # Parse the arguments
+    args = parser.parse_args()
+    return args
+
+args = parse_args()
+
+
 def quat_mult(q, p):
     # q * p
     # p,q = [w x y z]
@@ -77,8 +123,7 @@ class Robot:
         self.state = self.reset_state_and_input(np.array([1.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0]))
         self.time = 0.0
         self.past_p = []
-        self.wind_mag = 0
-        self.record_path = f"simple-quad-sim/data/{self.wind_mag}wind.csv"
+        self.record_path = f"simple-quad-sim/data/{args.wind_mag}_{args.wind}_wind-{args.traj}.csv"
         # clear the file
         with open(self.record_path, 'w', newline='') as _:
             pass
@@ -119,11 +164,12 @@ class Robot:
 
         with open(self.record_path, 'a', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(p_I, v_I, q, omega, omegas_motor, self.time)
+            writer.writerow([*p_I, *v_I, *q, *omegas_motor])
 
-        if self.time > 10:
+        if self.time > 20:
             print(f"data is recorded in {self.record_path}")
             exit("Simulation finished")
+
 
     def control(self, p_d_I):
         p_I = self.state[IDX_POS_X:IDX_POS_Z+1]
@@ -163,10 +209,13 @@ class Robot:
         omega_motor = np.sqrt(np.clip(omega_motor_square, 0, None))
         return omega_motor
 
-    def wind(self, om = 1, phi = 0):
-        return np.array([1, 0, 0]) * self.wind_mag * np.sin(om * self.time + phi)
+    def wind(self, om = 0.5, phi = 0):
+        if args.wind == "const":
+            return np.array([1, 0, 0]) * args.wind_mag
+        elif args.wind == "sin":
+            return np.array([1, 0, 0]) * args.wind_mag * np.sin(om * self.time + phi)
 
-PLAYBACK_SPEED = 20
+PLAYBACK_SPEED = 100
 CONTROL_FREQUENCY = 200 # Hz for attitude control loop
 dt = 1.0 / CONTROL_FREQUENCY
 time = [0.0]
@@ -188,17 +237,24 @@ def control_propellers(quad):
     t = quad.time
     T = 1.5
     r = 2*np.pi * t / T
-    prop_thrusts = quad.control(p_d_I = np.array([np.cos(r/2), np.sin(r), 0.0]))
-    # Note: for Hover mode, just replace the desired trajectory with [1, 0, 1]
+    if args.traj == "hover":
+        p_d_I = np.array([1.0, 0.0, 1.0])
+    elif args.traj == "circle":
+        p_d_I = np.array([np.cos(r), np.sin(r), 1.0])
+    elif args.traj == "figure8":
+        p_d_I = np.array([np.cos(r/2), np.sin(r), 1.0])
+    else:
+        raise ValueError()
+    prop_thrusts = quad.control(p_d_I = p_d_I)
     quad.update(prop_thrusts, dt)
 
 def main():
+    print(f"Running {args.traj} with {args.wind} wind of magnitude {args.wind_mag}")
     quadcopter = Robot()
     def control_loop(i):
         for _ in range(PLAYBACK_SPEED):
             control_propellers(quadcopter)
         return get_pos_full_quadcopter(quadcopter)
-
     plotter = QuadPlotter()
     plotter.plot_animation(control_loop)
 
