@@ -119,7 +119,7 @@ class Robot:
 
         with open(self.record_path, 'a', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(p_I)
+            writer.writerow(p_I, v_I, q, omega, omegas_motor, self.time)
 
         if self.time > 10:
             print(f"data is recorded in {self.record_path}")
