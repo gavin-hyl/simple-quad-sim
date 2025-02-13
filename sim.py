@@ -71,13 +71,13 @@ class Robot:
 
         self.J = 0.025 * np.eye(3) # [kg m^2]
         self.J_inv = np.linalg.inv(self.J)
-        self.constant_thrust = 20e-4
+        self.constant_thrust = 10e-4
         self.constant_drag = 10e-6
         self.omega_motors = np.array([0.0, 0.0, 0.0, 0.0])
         self.state = self.reset_state_and_input(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0]))
         self.time = 0.0
         self.past_p = []
-        self.record_path = "simple-quad-sim/data/2a-20.csv"
+        self.record_path = "simple-quad-sim/data/2a-wind3.csv"
         # clear the file
         with open(self.record_path, 'w', newline='') as _:
             pass
@@ -121,6 +121,7 @@ class Robot:
             writer.writerow(p_I)
 
         if self.time > 10:
+            print(f"data is recorded in {self.record_path}")
             exit("Simulation finished")
 
     def control(self, p_d_I):
@@ -139,6 +140,7 @@ class Robot:
         thrust = np.max([0, f_b[2]])
         
         # Attitude controller.
+        # We don't need to touch this.
         q_ref = quaternion_from_vectors(np.array([0, 0, 1]), normalized(f))
         q_err = quat_mult(quat_conjugate(q_ref), q) # error from Body to Reference.
         if q_err[0] < 0:
@@ -161,10 +163,10 @@ class Robot:
         omega_motor = np.sqrt(np.clip(omega_motor_square, 0, None))
         return omega_motor
 
-    def wind(self, fw = 1e-2, om = 1, phi = 0):
+    def wind(self, fw = 0.5, om = 1, phi = 0):
         return np.ones(3) * fw * np.sin(om * self.time + phi)
 
-PLAYBACK_SPEED = 10
+PLAYBACK_SPEED = 5
 CONTROL_FREQUENCY = 200 # Hz for attitude control loop
 dt = 1.0 / CONTROL_FREQUENCY
 time = [0.0]
@@ -187,8 +189,8 @@ def control_propellers(quad):
     T = 1.5
     r = 2*np.pi * t / T
     p = quad.state[IDX_POS_X:IDX_POS_Z+1]   
-    p_d = np.array([np.cos(r/2), np.sin(r), 0.0])
-    # p_d = p_d + np.array([0.0, 0.0, 1.0])   # hovering at 1m
+    # p_d = np.array([np.cos(r/2), np.sin(r), 0.0])
+    p_d = np.array([0.0, 0.0, 1.0])   # hovering at 1m
     k_smooth = 1.0      # higher value means smoother trajectory from start
     exp_smooth = np.exp(-k_smooth * t)  # blend two trajectories
     prop_thrusts = quad.control(p_d_I = exp_smooth * p + (1 - exp_smooth) * p_d)
