@@ -1,6 +1,6 @@
-## HW2 CDS 245
+# HW2 CDS 245
 
-### Install requirements
+## Install requirements
 ```
 pip3 install -r requirements.txt
 ```
