@@ -77,7 +77,8 @@ class Robot:
         self.state = self.reset_state_and_input(np.array([1.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0]))
         self.time = 0.0
         self.past_p = []
-        self.record_path = "simple-quad-sim/data/2a-wind3.csv"
+        self.wind_mag = 0
+        self.record_path = f"simple-quad-sim/data/{self.wind_mag}wind.csv"
         # clear the file
         with open(self.record_path, 'w', newline='') as _:
             pass
@@ -140,7 +141,6 @@ class Robot:
         thrust = np.max([0, f_b[2]])
         
         # Attitude controller.
-        # We don't need to touch this.
         q_ref = quaternion_from_vectors(np.array([0, 0, 1]), normalized(f))
         q_err = quat_mult(quat_conjugate(q_ref), q) # error from Body to Reference.
         if q_err[0] < 0:
@@ -163,10 +163,10 @@ class Robot:
         omega_motor = np.sqrt(np.clip(omega_motor_square, 0, None))
         return omega_motor
 
-    def wind(self, fw = 0.5, om = 1, phi = 0):
-        return np.ones(3) * fw * np.sin(om * self.time + phi)
+    def wind(self, om = 1, phi = 0):
+        return np.array([1, 0, 0]) * self.wind_mag * np.sin(om * self.time + phi)
 
-PLAYBACK_SPEED = 5
+PLAYBACK_SPEED = 20
 CONTROL_FREQUENCY = 200 # Hz for attitude control loop
 dt = 1.0 / CONTROL_FREQUENCY
 time = [0.0]
