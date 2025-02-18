@@ -1,8 +1,5 @@
 import subprocess
-
-VALID_TRAJS = ["hover", "circle", "figure8"]
-VALID_WINDS = ["const", "sin"]
-WIND_MAGS = [0, 1, 3, 5, 10]
+from params import VALID_TRAJS, VALID_WINDS, WIND_MAGS
 
 for traj in VALID_TRAJS:
     for wind in VALID_WINDS:

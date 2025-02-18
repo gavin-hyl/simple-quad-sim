@@ -3,23 +3,19 @@ import numpy as np
 from animate_function import QuadPlotter
 import csv
 import argparse
+from params import VALID_TRAJS, VALID_WINDS, WIND_MAGS
 
 
+# ============================================================================
+#                      Parse Arguments for Data Collection
+# ============================================================================
 def parse_args():
-    # Define valid options
-    VALID_TRAJS = ["hover", "circle", "figure8"]
-    VALID_WINDS = ["const", "sin"]
-    WIND_MAGS = [0, 1, 3, 5, 10]
-
-    # Set default values
     default_traj = VALID_TRAJS[0]
     default_wind = VALID_WINDS[0]
     default_wind_mag = WIND_MAGS[0]
 
-    # Create the parser
     parser = argparse.ArgumentParser(description="Parse simulation parameters.")
 
-    # Add arguments for args.traj, args.wind, and args.wind_mag with valid choices and defaults
     parser.add_argument(
         "--traj",
         type=str,
@@ -42,12 +38,12 @@ def parse_args():
         help=f"Wind magnitude. Valid options: {', '.join(map(str, WIND_MAGS))} (default: {default_wind_mag})",
     )
 
-    # Parse the arguments
     args = parser.parse_args()
     return args
-
-
 args = parse_args()
+# ============================================================================
+#                    End Parse Arguments for Data Collection
+# ============================================================================
 
 
 def quat_mult(q, p):
@@ -134,13 +130,37 @@ class Robot:
             np.array([1.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0])
         )
         self.time = 0.0
-        self.past_p = []
         self.record_path = (
-            f"simple-quad-sim/data/{args.wind_mag}_{args.wind}_wind-{args.traj}.csv"
+            f"simple-quad-sim/data/synth-fly_{args.traj}_NF_{args.wind_mag}wind{args.wind}.csv"
         )
+        self.tic = 0
         # clear the file
-        with open(self.record_path, "w", newline="") as _:
-            pass
+        with open(self.record_path, "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(
+                [
+                    None,
+                    "t",
+                    "p",
+                    "p_d",
+                    "v",
+                    "v_d",
+                    "q",
+                    "R",
+                    "w",
+                    "T_sp",
+                    "q_sp",
+                    "hover_throttle",
+                    "fa",
+                    "pwm",
+                ]
+            )
+
+        # === Log Desired Trajectory ===
+        self.p_d_I = 0
+        self.v_d_I = 0
+        # === End Log Desired Trajectory ===
+            
 
     def reset_state_and_input(self, init_xyz, init_quat_wxyz):
         state0 = np.zeros(NO_STATES)
@@ -193,12 +213,30 @@ class Robot:
             self.state[IDX_QUAT_W : IDX_QUAT_Z + 1]
         )  # Re-normalize quaternion.
         self.time += dt
+        self.tic += 1
 
+        # === Log Data ===
         with open(self.record_path, "a", newline="") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow([*p_I, *v_I, *q, *omegas_motor])
+            writer.writerow([
+                self.tic,
+                self.time,
+                str(p_I.tolist()),
+                str(self.p_d_I.tolist()),
+                str(v_I.tolist()),
+                str(self.v_d_I.tolist()),
+                str(q.tolist()),
+                str(R.tolist()),
+                str(omega.tolist()),
+                None,  # T_sp
+                None,  # q_sp
+                None,  # hover_throttle
+                str(self.wind().tolist()),
+                str(omegas_motor.tolist()),
+            ])
+        # === End Log Data ===
 
-        if self.time > 20:
+        if self.time > 15:
             print(f"data is recorded in {self.record_path}")
             exit("Simulation finished")
 
@@ -265,6 +303,12 @@ class Robot:
         B_inv = np.linalg.inv(B)
         omega_motor_square = B_inv @ np.concatenate([np.array([thrust]), tau])
         omega_motor = np.sqrt(np.clip(omega_motor_square, 0, None))
+
+        # === Log Desired Trajectory ===
+        self.v_d_I = (p_d_I - self.p_d_I) / dt
+        self.p_d_I = p_d_I
+        # === End Log Desired Trajectory ===
+
         return omega_motor
 
     def wind(self, om=0.5, phi=0):
