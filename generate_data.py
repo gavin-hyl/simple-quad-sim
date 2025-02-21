@@ -8,7 +8,7 @@ for traj in VALID_TRAJS:
                 [
                     "python",
                     "-u",
-                    "simple-quad-sim/sim.py",
+                    "sim.py",
                     "--traj",
                     traj,
                     "--wind",

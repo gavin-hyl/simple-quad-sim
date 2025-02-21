@@ -137,7 +137,7 @@ class Robot:
         self.nf = True
         self.record_data = True
 
-        name = "synth-fly" if self.nf else "pd-fly"
+        name = "nf" if self.nf else "pd"
         self.record_path = f"data/{name}_{args.traj}_NF_{args.wind_mag}wind{args.wind}.csv"
 
         self.tic = 0
@@ -279,8 +279,8 @@ class Robot:
         omega_b = self.state[IDX_OMEGA_X : IDX_OMEGA_Z + 1]
 
         # Position controller.
-        k_p = 1.0
-        k_d = 10.0
+        k_p = 2
+        k_d = 5
         v_r = -k_p * (p_I - p_d_I)
         s = v_I - v_r
         a = -k_d * s + np.array([0, 0, 9.81])  # original PD controller
@@ -297,7 +297,7 @@ class Robot:
             self.a_I = (v_I - self.v_I_prev) / dt
             self.v_I_prev = v_I
             a += self.a_I - Phi @ self.a_hat
-            print("a_hat magnitude: ", np.linalg.norm(self.a_hat))
+            # print("a_hat magnitude: ", np.linalg.norm(self.a_hat))
 
 
         f = self.m * a
@@ -369,7 +369,7 @@ class Robot:
             return np.array([1, 0, 0]) * args.wind_mag * np.sin(om * self.time + phi)
 
 
-PLAYBACK_SPEED = 50
+PLAYBACK_SPEED = 200
 CONTROL_FREQUENCY = 200  # Hz for attitude control loop
 dt = 1.0 / CONTROL_FREQUENCY
 time = [0.0]
@@ -393,7 +393,7 @@ def get_pos_full_quadcopter(quad):
 
 def control_propellers(quad):
     t = quad.time
-    T = 1.5
+    T = 5
     r = 2 * np.pi * t / T
     if args.traj == "hover":
         p_d_I = np.array([1.0, 0.0, 1.0])
