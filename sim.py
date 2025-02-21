@@ -135,7 +135,7 @@ class Robot:
         self.time = 0.0
 
         self.nf = True
-        self.record_data = True
+        self.record_data = False
 
         name = "nf" if self.nf else "pd"
         self.record_path = f"data/{name}_{args.traj}_NF_{args.wind_mag}wind{args.wind}.csv"
@@ -288,7 +288,7 @@ class Robot:
         if self.nf:
             Phi = self.compute_Phi()
             a_hat_dot = -self.l * self.a_hat + self.P @ Phi.T @ s
-            # a_hat_dot += -self.P @ Phi.T @ np.linalg.inv(self.R) @ (Phi @ self.a_hat - y)
+            a_hat_dot += -self.P @ Phi.T @ np.linalg.inv(self.R) @ (Phi @ self.a_hat - self.wind())
             self.a_hat += a_hat_dot * dt
 
             P_dot = -2 * self.l * self.P + self.Q - self.P @ Phi.T @ np.linalg.inv(self.R) @ Phi @ self.P
