@@ -4,7 +4,8 @@ from animate_function import QuadPlotter
 import csv
 import argparse
 from params import VALID_TRAJS, VALID_WINDS, WIND_MAGS
-
+from mlmodel import load_model, Model
+from torch import tensor
 
 # ============================================================================
 #                      Parse Arguments for Data Collection
@@ -40,6 +41,8 @@ def parse_args():
 
     args = parser.parse_args()
     return args
+
+
 args = parse_args()
 # ============================================================================
 #                    End Parse Arguments for Data Collection
@@ -130,37 +133,49 @@ class Robot:
             np.array([1.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0])
         )
         self.time = 0.0
-        self.record_path = (
-            f"simple-quad-sim/data/synth-fly_{args.traj}_NF_{args.wind_mag}wind{args.wind}.csv"
-        )
+
+        self.nf = True
+        self.record_data = True
+
+        name = "synth-fly" if self.nf else "pd-fly"
+        self.record_path = f"data/{name}_{args.traj}_NF_{args.wind_mag}wind{args.wind}.csv"
+
         self.tic = 0
         # clear the file
-        with open(self.record_path, "w", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(
-                [
-                    None,
-                    "t",
-                    "p",
-                    "p_d",
-                    "v",
-                    "v_d",
-                    "q",
-                    "R",
-                    "w",
-                    "T_sp",
-                    "q_sp",
-                    "hover_throttle",
-                    "fa",
-                    "pwm",
-                ]
-            )
+        if self.record_data:
+            with open(self.record_path, "w", newline="") as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(
+                    [
+                        None,
+                        "t",
+                        "p",
+                        "p_d",
+                        "v",
+                        "v_d",
+                        "q",
+                        "R",
+                        "w",
+                        "T_sp",
+                        "q_sp",
+                        "hover_throttle",
+                        "fa",
+                        "pwm",
+                    ]
+                )
 
-        # === Log Desired Trajectory ===
         self.p_d_I = 0
         self.v_d_I = 0
-        # === End Log Desired Trajectory ===
-            
+        self.a_I = 0
+        self.v_I_prev = 0
+        self.a_hat = np.zeros(9)
+        self.l = 1e-3
+        self.P = np.eye(9) * 1e-3
+        self.Q = np.eye(9) * 1e-3
+        self.R = np.eye(3)
+        self.K = np.eye(3)
+        if self.nf:
+            self.phi_net = load_model("synth-fly_dim-a-3_v-q-pwm-epoch-950")
 
     def reset_state_and_input(self, init_xyz, init_quat_wxyz):
         state0 = np.zeros(NO_STATES)
@@ -204,7 +219,7 @@ class Robot:
 
         v_dot = 1 / self.m * R @ f_b + np.array([0, 0, -9.81]) + self.wind()
         omega_dot = self.J_inv @ (np.cross(self.J @ omega, omega) + tau_b)
-        q_dot = 1 / 2 * quat_mult(q, [0, *omega])
+        q_dot = 1 / 2 * quat_mult(q, [0, *omega]  )
         p_dot = v_I
 
         x_dot = np.concatenate([p_dot, v_dot, q_dot, omega_dot])
@@ -216,29 +231,46 @@ class Robot:
         self.tic += 1
 
         # === Log Data ===
-        with open(self.record_path, "a", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow([
-                self.tic,
-                self.time,
-                str(p_I.tolist()),
-                str(self.p_d_I.tolist()),
-                str(v_I.tolist()),
-                str(self.v_d_I.tolist()),
-                str(q.tolist()),
-                str(R.tolist()),
-                str(omega.tolist()),
-                None,  # T_sp
-                None,  # q_sp
-                None,  # hover_throttle
-                str(self.wind().tolist()),
-                str(omegas_motor.tolist()),
-            ])
+        if self.record_data:
+            with open(self.record_path, "a", newline="") as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(
+                    [
+                        self.tic,
+                        self.time,
+                        str(p_I.tolist()),
+                        str(self.p_d_I.tolist()),
+                        str(v_I.tolist()),
+                        str(self.v_d_I.tolist()),
+                        str(q.tolist()),
+                        str(R.tolist()),
+                        str(omega.tolist()),
+                        None,  # T_sp
+                        None,  # q_sp
+                        None,  # hover_throttle
+                        str(self.wind().tolist()),
+                        str(omegas_motor.tolist()),
+                    ]
+                )
         # === End Log Data ===
 
         if self.time > 15:
-            print(f"data is recorded in {self.record_path}")
+            if self.record_data:
+                print(f"data is recorded in {self.record_path}")
             exit("Simulation finished")
+
+    def compute_Phi(self):
+        """ Returns a Phi matrix of dimensions (3, 9) """
+        x = np.zeros(11)
+        x[0:3] = self.state[IDX_VEL_X : IDX_VEL_Z + 1]
+        x[3:7] = self.state[IDX_QUAT_W : IDX_QUAT_Z + 1]
+        x[7:11] = self.omega_motors
+        phi = self.phi_net.phi.forward(tensor(x)).detach().numpy().reshape(1, -1)
+        Phi = np.zeros((3, 9))
+        for i in range(3):
+            Phi[i, i * 3 : (i + 1) * 3] = phi
+        return Phi
+
 
     def control(self, p_d_I):
         p_I = self.state[IDX_POS_X : IDX_POS_Z + 1]
@@ -250,7 +282,24 @@ class Robot:
         k_p = 1.0
         k_d = 10.0
         v_r = -k_p * (p_I - p_d_I)
-        a = -k_d * (v_I - v_r) + np.array([0, 0, 9.81])
+        s = v_I - v_r
+        a = -k_d * s + np.array([0, 0, 9.81])  # original PD controller
+
+        if self.nf:
+            Phi = self.compute_Phi()
+            a_hat_dot = -self.l * self.a_hat + self.P @ Phi.T @ s
+            # a_hat_dot += -self.P @ Phi.T @ np.linalg.inv(self.R) @ (Phi @ self.a_hat - y)
+            self.a_hat += a_hat_dot * dt
+
+            P_dot = -2 * self.l * self.P + self.Q - self.P @ Phi.T @ np.linalg.inv(self.R) @ Phi @ self.P
+            self.P += P_dot * dt
+            # compute desired acceleration
+            self.a_I = (v_I - self.v_I_prev) / dt
+            self.v_I_prev = v_I
+            a += self.a_I - Phi @ self.a_hat
+            print("a_hat magnitude: ", np.linalg.norm(self.a_hat))
+
+
         f = self.m * a
         f_b = (
             scipy.spatial.transform.Rotation.from_quat([q[1], q[2], q[3], q[0]])
@@ -309,6 +358,8 @@ class Robot:
         self.p_d_I = p_d_I
         # === End Log Desired Trajectory ===
 
+        self.omega_motors = omega_motor
+
         return omega_motor
 
     def wind(self, om=0.5, phi=0):
@@ -318,7 +369,7 @@ class Robot:
             return np.array([1, 0, 0]) * args.wind_mag * np.sin(om * self.time + phi)
 
 
-PLAYBACK_SPEED = 100
+PLAYBACK_SPEED = 50
 CONTROL_FREQUENCY = 200  # Hz for attitude control loop
 dt = 1.0 / CONTROL_FREQUENCY
 time = [0.0]
